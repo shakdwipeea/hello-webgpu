@@ -1,4 +1,9 @@
-import tree from "/tree.png";
+import cube from "/cube-diffuse.jpg";
+
+export interface TextureResource {
+  texture: GPUTexture;
+  sampler: GPUSampler;
+}
 
 async function loadImage(url: string) {
   const response = await fetch(url);
@@ -7,8 +12,10 @@ async function loadImage(url: string) {
   return image;
 }
 
-export async function createTexture(device: GPUDevice) {
-  const imgSource = await loadImage(tree);
+export async function createTexture(
+  device: GPUDevice
+): Promise<TextureResource> {
+  const imgSource = await loadImage(cube);
 
   const texture = device.createTexture({
     size: [imgSource.width, imgSource.height],
@@ -41,7 +48,7 @@ export async function createTexture(device: GPUDevice) {
 export function createDepthTexture(
   device: GPUDevice,
   { width = 1024, height = 1024 }
-) {
+): TextureResource {
   const depthTexture = device.createTexture({
     size: { width, height, depthOrArrayLayers: 1 },
     mipLevelCount: 1,

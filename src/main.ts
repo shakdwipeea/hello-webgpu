@@ -5,22 +5,62 @@ import {
   Indices,
   loadModel,
 } from "./buffers";
-import { createDepthTexture, createTexture } from "./texture";
-import { Camera } from "./camera";
+import { createDepthTexture, createTexture, TextureResource } from "./texture";
+import { Camera, CameraRotation } from "./camera";
+import { createLightRenderPipeline } from "./lights";
+
+interface DrawPass {
+  pipeline: GPURenderPipeline;
+  vertexBuffer: GPUBuffer;
+  indexBuffer: GPUBuffer;
+  bindGroups: GPUBindGroup[];
+  drawCount: number;
+}
 
 interface RenderState {
   // Define the state of your render loop here
-  descriptor: GPURenderPassDescriptor;
   device: GPUDevice;
-  pipeline: GPURenderPipeline;
   context: GPUCanvasContext;
   model: Model;
-  bindGroups: GPUBindGroup[];
+  drawPasses: DrawPass[];
+  camera: Camera;
+  depthTexture: TextureResource;
 }
 
+var canvas, context, depthTexture;
+
 function render(state: RenderState) {
+  if (!context) return;
+
+  state.camera.update(state.device);
+
+  // const depthTexture = createDepthTexture(state.device, {
+  //   width: canvas.width,
+  //   height: canvas.height,
+  // });
+
+  // todo need to think if this is really needed here
+  // this is right now only updated when the depth texture gets updated
+  const renderPassDescriptor: GPURenderPassDescriptor = {
+    label: "renderPass",
+    colorAttachments: [
+      {
+        clearValue: [0.0, 0.0, 0.0, 1.0],
+        loadOp: "clear",
+        storeOp: "store",
+        view: context.getCurrentTexture().createView(),
+      },
+    ],
+    depthStencilAttachment: {
+      view: depthTexture.texture.createView(),
+      depthLoadOp: "clear",
+      depthStoreOp: "store",
+      depthClearValue: 1.0,
+    },
+  };
+
   // get the current texture from the canvas and use it as the texture for the render pass
-  for (let attachment of state.descriptor.colorAttachments) {
+  for (let attachment of renderPassDescriptor.colorAttachments) {
     if (attachment == null || attachment == undefined) continue;
 
     attachment.view = state.context.getCurrentTexture().createView();
@@ -31,18 +71,31 @@ function render(state: RenderState) {
     label: "renderEncoder",
   });
 
-  const pass = encoder.beginRenderPass(state.descriptor);
+  const pass = encoder.beginRenderPass(renderPassDescriptor);
 
-  // Draw your triangle here
-  pass.setPipeline(state.pipeline);
+  for (let {
+    pipeline,
+    bindGroups,
+    vertexBuffer,
+    indexBuffer,
+    drawCount,
+  } of state.drawPasses) {
+    // Draw your triangle here
+    pass.setPipeline(pipeline);
 
-  for (let [i, bindGroup] of state.bindGroups.entries()) {
-    pass.setBindGroup(i, bindGroup);
+    const activeGroups = bindGroups.concat(
+      state.camera.resourceBinding.bindGroup
+    );
+
+    for (let [i, bindGroup] of activeGroups.entries()) {
+      pass.setBindGroup(i, bindGroup);
+    }
+
+    pass.setVertexBuffer(0, vertexBuffer);
+    pass.setIndexBuffer(indexBuffer, "uint16");
+    pass.drawIndexed(drawCount, 1); // Assuming you have a triangle with 3 vertices
   }
 
-  pass.setVertexBuffer(0, state.model.vertexBuffer);
-  pass.setIndexBuffer(state.model.indexBuffer, "uint16");
-  pass.drawIndexed(state.model.drawCount, 1); // Assuming you have a triangle with 3 vertices
   pass.end();
 
   const commandBuffer = encoder.finish();
@@ -74,21 +127,40 @@ async function main() {
     throw new Error("Failed to create a device.");
   }
 
-  const canvas = document.querySelector("canvas") as HTMLCanvasElement;
-  const context = canvas.getContext("webgpu");
+  canvas = document.querySelector("canvas") as HTMLCanvasElement;
+  context = canvas.getContext("webgpu");
   if (!context) {
     throw new Error("Failed to get the webgpu context.");
   }
 
+  const camera = new Camera(canvas, device);
+
+  depthTexture = createDepthTexture(device, {
+    width: canvas.width,
+    height: canvas.height,
+  });
+
   const observer = new ResizeObserver((entries) => {
     for (const entry of entries) {
-      const canvas = entry.target as HTMLCanvasElement;
+      const canvasT = entry.target as HTMLCanvasElement;
       const width = entry.contentBoxSize[0].inlineSize;
       const height = entry.contentBoxSize[0].blockSize;
 
       // Set the canvas resolution to match the display size
-      canvas.width = Math.max(1, Math.floor(width * window.devicePixelRatio));
-      canvas.height = Math.max(1, Math.floor(height * window.devicePixelRatio));
+      canvasT.width = Math.max(1, Math.floor(width * window.devicePixelRatio));
+      canvasT.height = Math.max(
+        1,
+        Math.floor(height * window.devicePixelRatio)
+      );
+
+      canvas = canvasT;
+
+      camera.updateAspectRatio(device);
+
+      depthTexture = createDepthTexture(device, {
+        width: canvas.width,
+        height: canvas.height,
+      });
     }
   });
 
@@ -104,13 +176,11 @@ async function main() {
   const model = await loadModel(device);
   const { texture, sampler } = await createTexture(device);
 
-  const depthTexture = createDepthTexture(device, {
-    width: canvas.width,
-    height: canvas.height,
-  });
-
-  const camera = new Camera();
-  const { layout, bindGroup } = camera.createBindGroup(device);
+  const lightData = createLightRenderPipeline(
+    device,
+    model,
+    camera.resourceBinding
+  );
 
   const module = device.createShaderModule({
     label: "triangle",
@@ -141,7 +211,11 @@ async function main() {
 
   const pipelineLayout = device.createPipelineLayout({
     label: "pipeline tlayout",
-    bindGroupLayouts: [bindGroupLayout, layout],
+    bindGroupLayouts: [
+      bindGroupLayout,
+      lightData.resource.layout,
+      camera.resourceBinding.layout,
+    ],
   });
 
   const pipeline = device.createRenderPipeline({
@@ -181,32 +255,49 @@ async function main() {
     ],
   });
 
-  const renderPassDescriptor: GPURenderPassDescriptor = {
-    label: "renderPass",
-    colorAttachments: [
-      {
-        clearValue: [0.0, 0.0, 0.0, 1.0],
-        loadOp: "clear",
-        storeOp: "store",
-        view: context.getCurrentTexture().createView(),
-      },
-    ],
-    depthStencilAttachment: {
-      view: depthTexture.texture.createView(),
-      depthLoadOp: "clear",
-      depthStoreOp: "store",
-      depthClearValue: 1.0,
+  // const renderPassDescriptor: GPURenderPassDescriptor = {
+  //   label: "renderPass",
+  //   colorAttachments: [
+  //     {
+  //       clearValue: [0.0, 0.0, 0.0, 1.0],
+  //       loadOp: "clear",
+  //       storeOp: "store",
+  //       view: context.getCurrentTexture().createView(),
+  //     },
+  //   ],
+  //   depthStencilAttachment: {
+  //     view: depthTexture.texture.createView(),
+  //     depthLoadOp: "clear",
+  //     depthStoreOp: "store",
+  //     depthClearValue: 1.0,
+  //   },
+  // };
+
+  const drawPasses: DrawPass[] = [
+    {
+      pipeline,
+      vertexBuffer: model.vertexBuffer,
+      indexBuffer: model.indexBuffer,
+      bindGroups: [textureBindGroup, lightData.resource.bindGroup],
+      drawCount: model.drawCount,
     },
-  };
+    {
+      pipeline: lightData.pipeline,
+      vertexBuffer: model.vertexBuffer,
+      indexBuffer: model.indexBuffer,
+      bindGroups: [lightData.resource.bindGroup],
+      drawCount: model.drawCount,
+    },
+  ];
 
   requestAnimationFrame(() => {
     render({
-      descriptor: renderPassDescriptor,
       device,
-      pipeline,
+      drawPasses,
       context,
       model,
-      bindGroups: [textureBindGroup, bindGroup],
+      camera,
+      depthTexture,
     });
   });
 

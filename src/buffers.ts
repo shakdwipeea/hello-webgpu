@@ -1,5 +1,5 @@
 import { vec2, vec3 } from "wgpu-matrix";
-import cube from "/cube.glb?url";
+import cube from "/cube.gltf?url";
 import { load } from "@loaders.gl/core";
 import { GLTFLoader } from "@loaders.gl/gltf";
 
@@ -40,7 +40,13 @@ export interface Model {
   vertexLayout: GPUVertexBufferLayout;
 }
 
-async function readModel(): GltfModelData[] {
+export interface ResourceBinding {
+  buffer: GPUBuffer;
+  layout: GPUBindGroupLayout;
+  bindGroup: GPUBindGroup;
+}
+
+async function readModel(): Promise<GltfModelData[]> {
   let gltfModels: GltfModelData[] = [];
 
   const glbData = await load(cube, GLTFLoader);
