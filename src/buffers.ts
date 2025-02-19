@@ -28,9 +28,11 @@ export const Vertices = [
 
 export const Indices: number[] = [0, 1, 4, 1, 2, 4, 2, 3, 4];
 
-interface GltfModelData {
+export interface GltfModelData {
   vertexData: Float32Array;
   indexData: Uint16Array;
+  positions: Float32Array;
+  vertexCount: number;
 }
 
 export interface Model {
@@ -38,6 +40,7 @@ export interface Model {
   indexBuffer: GPUBuffer;
   drawCount: number;
   vertexLayout: GPUVertexBufferLayout;
+  modelData: GltfModelData;
 }
 
 export interface ResourceBinding {
@@ -126,9 +129,16 @@ async function readModel(): Promise<GltfModelData[]> {
       const vertexCount = attrsData[0].length / 3; // Number of vertices (POSITION length / 3)
       const stride = 8; // position(3) + normal(3) + uv(2) = 8 floats per vertex
       const vertexData = new Float32Array(vertexCount * stride);
+      const positions = new Float32Array(vertexCount * 3);
 
       for (let i = 0; i < vertexCount; i++) {
         // Position (3 floats)
+
+        positions[i * 3] = attrsData[0][i * 3 + 0];
+        positions[i * 3 + 1] = attrsData[0][i * 3 + 1];
+        positions[i * 3 + 2] = attrsData[0][i * 3 + 2];
+
+        // todo use a local variable of sth..smh
         vertexData[i * stride + 0] = attrsData[0][i * 3 + 0];
         vertexData[i * stride + 1] = attrsData[0][i * 3 + 1];
         vertexData[i * stride + 2] = attrsData[0][i * 3 + 2];
@@ -149,6 +159,8 @@ async function readModel(): Promise<GltfModelData[]> {
       gltfModels.push({
         vertexData,
         indexData,
+        positions,
+        vertexCount,
       });
     }
   }
@@ -187,7 +199,7 @@ export function createIndexBuffer(
   return indexBuffer;
 }
 
-export async function loadModel(device: GPUDevice): Model {
+export async function loadModel(device: GPUDevice): Promise<Model | undefined> {
   const gltfData = await readModel();
 
   const layout: GPUVertexBufferLayout = {
@@ -224,6 +236,7 @@ export async function loadModel(device: GPUDevice): Model {
       indexBuffer,
       vertexLayout: layout,
       drawCount: model.indexData.length,
+      modelData: model,
     };
   }
 }

@@ -4,6 +4,13 @@ struct VertexInput {
     @location(2) uv: vec2<f32>,
 };
 
+struct ModelMatrix {
+    @location(3) row_0: vec4<f32>,
+    @location(4) row_1: vec4<f32>,
+    @location(5) row_2: vec4<f32>,
+    @location(6) row_3: vec4<f32>
+}
+
 struct CameraUniform {
     pos: vec4<f32>,
     view_proj: mat4x4<f32>
@@ -24,10 +31,17 @@ struct Light {
 }
 
 
-@vertex fn vs(model: VertexInput) -> VertexOutput {
+@vertex fn vs(model: VertexInput, m: ModelMatrix) -> VertexOutput {
+    let model_matrix = mat4x4<f32>(
+        m.row_0,
+        m.row_1,
+        m.row_2,
+        m.row_3,
+    );
+
     var out: VertexOutput;
     out.uv = model.uv;
-    out.clip_position = camera.view_proj * vec4<f32>(model.position, 1.0);
+    out.clip_position = camera.view_proj * model_matrix * vec4<f32>(model.position, 1.0);
     out.normal = model.normal;
     out.position = model.position;
     return out;

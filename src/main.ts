@@ -8,10 +8,12 @@ import {
 import { createDepthTexture, createTexture, TextureResource } from "./texture";
 import { Camera, CameraRotation } from "./camera";
 import { createLightRenderPipeline } from "./lights";
+import { createInstanceBuffer, createInstanceLayout } from "./instances";
+import { createComputePipeline } from "./compute";
 
 interface DrawPass {
   pipeline: GPURenderPipeline;
-  vertexBuffer: GPUBuffer;
+  vertexBuffer: GPUBuffer[];
   indexBuffer: GPUBuffer;
   bindGroups: GPUBindGroup[];
   drawCount: number;
@@ -25,6 +27,7 @@ interface RenderState {
   drawPasses: DrawPass[];
   camera: Camera;
   depthTexture: TextureResource;
+  instanceData: any;
 }
 
 var canvas, context, depthTexture;
@@ -33,6 +36,13 @@ function render(state: RenderState) {
   if (!context) return;
 
   state.camera.update(state.device);
+
+  createComputePipeline(state.device, {
+    modelData: state.model.modelData,
+    modelMatrices: state.instanceData.data,
+    numInstances: 10,
+    camBuffer: state.camera.buildViewProjectionMatrix(),
+  });
 
   // const depthTexture = createDepthTexture(state.device, {
   //   width: canvas.width,
@@ -91,9 +101,12 @@ function render(state: RenderState) {
       pass.setBindGroup(i, bindGroup);
     }
 
-    pass.setVertexBuffer(0, vertexBuffer);
+    for (let [i, buffer] of vertexBuffer.entries()) {
+      pass.setVertexBuffer(i, buffer);
+    }
+
     pass.setIndexBuffer(indexBuffer, "uint16");
-    pass.drawIndexed(drawCount, 1); // Assuming you have a triangle with 3 vertices
+    pass.drawIndexed(drawCount, 10); // Assuming you have a triangle with 3 vertices
   }
 
   pass.end();
@@ -174,7 +187,13 @@ async function main() {
   });
 
   const model = await loadModel(device);
+  if (!model) {
+    console.error("Failed to load model");
+    return;
+  }
+
   const { texture, sampler } = await createTexture(device);
+  const instances = createInstanceLayout(device);
 
   const lightData = createLightRenderPipeline(
     device,
@@ -223,7 +242,7 @@ async function main() {
     layout: pipelineLayout,
     vertex: {
       module,
-      buffers: [model.vertexLayout],
+      buffers: [model.vertexLayout, instances.layout],
     },
     fragment: {
       module,
@@ -273,22 +292,31 @@ async function main() {
   //   },
   // };
 
+  const instanceData = createInstanceBuffer(device, 10);
+
   const drawPasses: DrawPass[] = [
     {
       pipeline,
-      vertexBuffer: model.vertexBuffer,
+      vertexBuffer: [model.vertexBuffer, instanceData.buffer],
       indexBuffer: model.indexBuffer,
       bindGroups: [textureBindGroup, lightData.resource.bindGroup],
       drawCount: model.drawCount,
     },
     {
       pipeline: lightData.pipeline,
-      vertexBuffer: model.vertexBuffer,
+      vertexBuffer: [model.vertexBuffer],
       indexBuffer: model.indexBuffer,
       bindGroups: [lightData.resource.bindGroup],
       drawCount: model.drawCount,
     },
   ];
+
+  createComputePipeline(device, {
+    modelData: model.modelData,
+    modelMatrices: instanceData.data,
+    numInstances: 10,
+    camBuffer: camera.buildViewProjectionMatrix(),
+  });
 
   requestAnimationFrame(() => {
     render({
@@ -298,6 +326,7 @@ async function main() {
       model,
       camera,
       depthTexture,
+      instanceData,
     });
   });
 
