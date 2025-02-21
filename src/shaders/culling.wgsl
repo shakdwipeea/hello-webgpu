@@ -53,7 +53,8 @@ fn isPointInFrustum(clipPos: vec4<f32>) -> bool {
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
      // Process one vertex per thread
-    let vertexIndex = id.x;
+    let vertexIndex = id.x / 10u;
+    let instanceIndex = id.x % 10u;
     
     // Early exit if beyond vertex data bounds
     if vertexIndex >= arrayLength(&vertices) {
@@ -61,24 +62,20 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     }
 
     let vertex = vertices[vertexIndex];
-    
-    // Process each instance for this vertex
-    for (var i = 0u; i < 10u; i = i + 1u) {
         
-        // Transform to world space
-        let worldPos = model_matrix[i] * vertex.position;
+    // Transform to world space
+    let worldPos = model_matrix[instanceIndex] * vertex.position;
         
-        // Transform to clip space
-        let clipPos = view_proj * worldPos;
+    // Transform to clip space
+    let clipPos = view_proj * worldPos;
         
-        // Store debug info
-        if vertexIndex * 10u + i < arrayLength(&debug) {
-            debug[vertexIndex * 10u + i] = clipPos;
-        }
+    // Store debug info
+    if vertexIndex * 10u + instanceIndex < arrayLength(&debug) {
+        debug[vertexIndex * 10u + instanceIndex] = clipPos;
+    }
         
-        // If any point is visible, mark the instance as visible
-        if isPointInFrustum(clipPos) {
-            atomicOr(&data[i], 1u);
-        }
+    // If any point is visible, mark the instance as visible
+    if isPointInFrustum(clipPos) {
+        atomicOr(&data[instanceIndex], 1u);
     }
 }

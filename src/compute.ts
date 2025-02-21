@@ -216,7 +216,7 @@ export async function createComputePipeline(
   });
   pass.setPipeline(pipeline);
   pass.setBindGroup(0, bindGroup);
-  pass.dispatchWorkgroups(1);
+  pass.dispatchWorkgroups(4);
   pass.end();
 
   encoder.copyBufferToBuffer(
