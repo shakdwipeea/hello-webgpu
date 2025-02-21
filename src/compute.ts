@@ -1,4 +1,4 @@
-import { Mat4 } from "wgpu-matrix";
+import { mat4, Mat4, vec3, Vec3, vec4, Vec4 } from "wgpu-matrix";
 import { GltfModelData } from "./buffers";
 import culling from "./shaders/culling.wgsl?raw";
 
@@ -18,69 +18,71 @@ export async function createComputePipeline(
     code: culling,
   });
 
-  const stride = 8 * 16 * 4;
-  const input = new Float32Array(
-    data.numInstances * data.modelData.vertexCount * stride
-  );
+  let input = [];
 
-  for (
-    let vertexIndex = 0;
-    vertexIndex < data.modelData.vertexCount;
-    vertexIndex++
-  ) {
-    for (
-      let instanceIndex = 0;
-      instanceIndex < data.numInstances;
-      instanceIndex++
-    ) {
-      const baseOffset =
-        ((vertexIndex * data.numInstances + instanceIndex) * stride) / 4;
+  for (let i = 0; i < data.modelData.positions.length / 3; i++) {
+    const verticeData = [];
 
-      // Set numInstance as vec4 (using w as padding)
-      input[baseOffset + 0] = data.numInstances;
-      input[baseOffset + 1] = 0; // padding
-      input[baseOffset + 2] = 0; // padding
-      input[baseOffset + 3] = 0; // padding
+    verticeData.push(...[data.numInstances, 0, 0, 0]);
+    verticeData.push(
+      data.modelData.positions[i * 3],
+      data.modelData.positions[i * 3 + 1],
+      data.modelData.positions[i * 3 + 2],
+      1.0
+    );
 
-      // Set position as vec4
-      input[baseOffset + 4] = data.modelData.positions[vertexIndex * 3];
-      input[baseOffset + 5] = data.modelData.positions[vertexIndex * 3 + 1];
-      input[baseOffset + 6] = data.modelData.positions[vertexIndex * 3 + 2];
-      input[baseOffset + 7] = 1.0; // w component
-
-      // Set model matrix (mat4x4)
-      const matrixOffset = baseOffset + 8;
-      const matrixStartIdx = instanceIndex * 16;
-      for (let k = 0; k < 16; k++) {
-        input[matrixOffset + k] = data.modelMatrices[matrixStartIdx + k];
-      }
-    }
+    input.push(...verticeData);
   }
+
+  const inputArr = Float32Array.from(input);
 
   const dataBuffer = device.createBuffer({
     label: "work buffer",
-    size: input.byteLength,
+    size: inputArr.byteLength,
     usage:
       GPUBufferUsage.STORAGE |
       GPUBufferUsage.COPY_SRC |
       GPUBufferUsage.COPY_DST,
   });
 
-  device.queue.writeBuffer(dataBuffer, 0, input);
+  device.queue.writeBuffer(dataBuffer, 0, inputArr);
 
-  const visibilityBufferSize = Math.ceil(data.numInstances / 32);
+  const visibilityBufferSize = Math.ceil(data.numInstances);
   const resultStorageBuffer = device.createBuffer({
     label: "res buffer",
-    size: visibilityBufferSize * 4,
+    size: visibilityBufferSize * Uint32Array.BYTES_PER_ELEMENT,
     usage:
       GPUBufferUsage.STORAGE |
       GPUBufferUsage.COPY_SRC |
       GPUBufferUsage.COPY_DST,
   });
+
+  // Initialize with zeros
+  const zeros = new Uint32Array(visibilityBufferSize).fill(0);
+  device.queue.writeBuffer(resultStorageBuffer, 0, zeros);
 
   const resultBuffer = device.createBuffer({
     label: "result buffer",
-    size: visibilityBufferSize * 4,
+    size: visibilityBufferSize * Uint32Array.BYTES_PER_ELEMENT,
+    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+  });
+
+  const debugBufferSize = Math.ceil(
+    data.numInstances * data.modelData.vertexCount * 4
+  );
+
+  const debugGpuBuffer = device.createBuffer({
+    label: "debug buffer",
+    size: debugBufferSize * Float32Array.BYTES_PER_ELEMENT,
+    usage:
+      GPUBufferUsage.STORAGE |
+      GPUBufferUsage.COPY_SRC |
+      GPUBufferUsage.COPY_DST,
+  });
+
+  const debugBuffer = device.createBuffer({
+    label: "debug buffer",
+    size: debugBufferSize * Float32Array.BYTES_PER_ELEMENT,
     usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
   });
 
@@ -92,6 +94,27 @@ export async function createComputePipeline(
       GPUBufferUsage.COPY_SRC |
       GPUBufferUsage.COPY_DST,
   });
+
+  device.queue.writeBuffer(camBuff, 0, data.camBuffer);
+
+  const instanceArr = [];
+  for (let j = 0; j < data.numInstances; j++) {
+    for (let k = 0; k < 16; k++) {
+      instanceArr.push(data.modelMatrices[j * 16 + k]);
+    }
+  }
+  const instance = Float32Array.from(instanceArr);
+
+  const instanceBuffer = device.createBuffer({
+    label: "instance buffer",
+    size: instance.byteLength,
+    usage:
+      GPUBufferUsage.STORAGE |
+      GPUBufferUsage.COPY_SRC |
+      GPUBufferUsage.COPY_DST,
+  });
+
+  device.queue.writeBuffer(instanceBuffer, 0, instance);
 
   const bindGroupLayout = device.createBindGroupLayout({
     entries: [
@@ -116,6 +139,20 @@ export async function createComputePipeline(
           type: "read-only-storage",
         },
       },
+      {
+        binding: 3,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: {
+          type: "storage",
+        },
+      },
+      {
+        binding: 4,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: {
+          type: "read-only-storage",
+        },
+      },
     ],
   });
 
@@ -128,6 +165,7 @@ export async function createComputePipeline(
     label: "compute pipeline",
     compute: {
       module,
+      entryPoint: "main",
     },
     layout,
   });
@@ -154,6 +192,18 @@ export async function createComputePipeline(
           buffer: camBuff,
         },
       },
+      {
+        binding: 3,
+        resource: {
+          buffer: debugGpuBuffer,
+        },
+      },
+      {
+        binding: 4,
+        resource: {
+          buffer: instanceBuffer,
+        },
+      },
     ],
   });
 
@@ -166,7 +216,7 @@ export async function createComputePipeline(
   });
   pass.setPipeline(pipeline);
   pass.setBindGroup(0, bindGroup);
-  pass.dispatchWorkgroups(14);
+  pass.dispatchWorkgroups(1);
   pass.end();
 
   encoder.copyBufferToBuffer(
@@ -175,6 +225,14 @@ export async function createComputePipeline(
     resultBuffer,
     0,
     resultBuffer.size
+  );
+
+  encoder.copyBufferToBuffer(
+    debugGpuBuffer,
+    0,
+    debugBuffer,
+    0,
+    debugBuffer.size
   );
 
   // Finish encoding and submit the commands
@@ -187,4 +245,50 @@ export async function createComputePipeline(
   resultBuffer.unmap();
 
   console.log("result", result);
+}
+
+export function doCulling(
+  positions: Vec3[],
+  view_proj: Mat4,
+  modelMatrices: Mat4[]
+) {
+  const visibility = [];
+
+  const v = [];
+
+  for (
+    let instanceIndex = 0;
+    instanceIndex < modelMatrices.length;
+    instanceIndex++
+  ) {
+    const t = [];
+    let isInsideFrustum = false;
+    for (let vertexIndex = 0; vertexIndex < positions.length; vertexIndex++) {
+      const worldPos = vec4.transformMat4(
+        vec4.fromValues(...positions[vertexIndex], 1.0),
+        modelMatrices[instanceIndex]
+      );
+      const clipPos = vec4.transformMat4(worldPos, view_proj) as Vec4;
+
+      const ndc = vec4.scale(clipPos, 1.0 / clipPos[3]);
+      // visibility[vertexIndex + instanceIndex] = clipPos;
+      t.push(ndc);
+      if (
+        ndc[0] >= -1 &&
+        ndc[0] <= 1 &&
+        ndc[1] >= -1 &&
+        ndc[1] <= 1 &&
+        ndc[2] >= -1 &&
+        ndc[2] <= 1
+      ) {
+        isInsideFrustum = true; // Found a vertex inside!
+        break; // Can stop checking other vertices
+      }
+    }
+    v[instanceIndex] = isInsideFrustum;
+    visibility.push(t);
+  }
+
+  console.log("vius", visibility);
+  console.log("Res", v);
 }
