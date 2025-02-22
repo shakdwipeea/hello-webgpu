@@ -230,7 +230,6 @@ export async function loadModel(device: GPUDevice): Promise<Model | undefined> {
 
     const vertexBuffer = createVertexBuffer(device, vertexData);
     const indexBuffer = createIndexBuffer(device, indexData);
-
     return {
       vertexBuffer,
       indexBuffer,

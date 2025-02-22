@@ -1,4 +1,4 @@
-import { mat4, Mat4, vec3, Vec3, vec4, Vec4 } from "wgpu-matrix";
+import { Mat4, Vec3, vec4, Vec4 } from "wgpu-matrix";
 import { GltfModelData } from "./buffers";
 import culling from "./shaders/culling.wgsl?raw";
 
@@ -116,6 +116,19 @@ export async function createComputePipeline(
 
   device.queue.writeBuffer(instanceBuffer, 0, instance);
 
+  const drawIndirectBuffer = device.createBuffer({
+    label: "draw buffer",
+    size: 5 * Uint32Array.BYTES_PER_ELEMENT,
+    usage:
+      GPUBufferUsage.STORAGE |
+      GPUBufferUsage.COPY_SRC |
+      GPUBufferUsage.COPY_DST |
+      GPUBufferUsage.INDIRECT,
+  });
+
+  const z = new Uint32Array(5).fill(0);
+  device.queue.writeBuffer(drawIndirectBuffer, 0, z);
+
   const bindGroupLayout = device.createBindGroupLayout({
     entries: [
       {
@@ -151,6 +164,13 @@ export async function createComputePipeline(
         visibility: GPUShaderStage.COMPUTE,
         buffer: {
           type: "read-only-storage",
+        },
+      },
+      {
+        binding: 5,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: {
+          type: "storage",
         },
       },
     ],
@@ -204,6 +224,12 @@ export async function createComputePipeline(
           buffer: instanceBuffer,
         },
       },
+      {
+        binding: 5,
+        resource: {
+          buffer: drawIndirectBuffer,
+        },
+      },
     ],
   });
 
@@ -241,10 +267,12 @@ export async function createComputePipeline(
 
   // Read the results
   await resultBuffer.mapAsync(GPUMapMode.READ);
-  const result = new Uint32Array(resultBuffer.getMappedRange().slice());
+  const result = new Uint32Array(resultBuffer.getMappedRange().slice(0));
   resultBuffer.unmap();
 
   console.log("result", result);
+
+  return drawIndirectBuffer;
 }
 
 export function doCulling(

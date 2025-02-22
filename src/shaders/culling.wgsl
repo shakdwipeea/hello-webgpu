@@ -1,10 +1,3 @@
-struct ModelMatrix {
-    row_0: vec4<f32>,
-    row_1: vec4<f32>,
-    row_2: vec4<f32>,
-    row_3: vec4<f32>
-}
-
 struct Vertices {
     numInstance: vec4<f32>,
     position: vec4<f32>,
@@ -21,6 +14,17 @@ var<storage, read_write> debug: array<vec4<f32>>;
 
 @group(0) @binding(4)
 var <storage, read> model_matrix: array<mat4x4<f32>, 10>;
+
+struct IndirectDraw {
+    indexCount: u32,
+    instanceCount: atomic<u32>,
+    firstIndex: u32,
+    baseVertex: u32,
+    firstInstance: u32
+}
+
+@group(0) @binding(5)
+var <storage, read_write> indirect_draw: IndirectDraw;
 
 fn isPointInFrustum(clipPos: vec4<f32>) -> bool {
     let w = clipPos.w;
@@ -61,6 +65,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         return;
     }
 
+    indirect_draw.indexCount = 36u;
+
     let vertex = vertices[vertexIndex];
         
     // Transform to world space
@@ -76,6 +82,11 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         
     // If any point is visible, mark the instance as visible
     if isPointInFrustum(clipPos) {
-        atomicOr(&data[instanceIndex], 1u);
+
+        let result = atomicExchange(&data[instanceIndex], 1u); // Try to set counter to 1 if it's currently 0
+        // if its the first time its 1, then increase instance count
+        if result != 1u {
+            atomicAdd(&indirect_draw.instanceCount, 1u);
+        }
     }
 }

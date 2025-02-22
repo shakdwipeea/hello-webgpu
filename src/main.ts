@@ -32,12 +32,12 @@ interface RenderState {
 
 var canvas, context, depthTexture;
 
-function render(state: RenderState) {
+async function render(state: RenderState) {
   if (!context) return;
 
   state.camera.update(state.device);
 
-  createComputePipeline(state.device, {
+  const drawIndirectBuffer = await createComputePipeline(state.device, {
     modelData: state.model.modelData,
     modelMatrices: state.instanceData.data,
     numInstances: 10,
@@ -106,7 +106,7 @@ function render(state: RenderState) {
     }
 
     pass.setIndexBuffer(indexBuffer, "uint16");
-    pass.drawIndexed(drawCount, 10); // Assuming you have a triangle with 3 vertices
+    pass.drawIndexedIndirect(drawIndirectBuffer, 0); // Assuming you have a triangle with 3 vertices
   }
 
   pass.end();
