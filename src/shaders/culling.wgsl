@@ -26,6 +26,9 @@ struct IndirectDraw {
 @group(0) @binding(5)
 var <storage, read_write> indirect_draw: IndirectDraw;
 
+@group(0) @binding(6) 
+var <storage, read_write> culled_model_matrix: array<mat4x4<f32>,10>;
+
 fn isPointInFrustum(clipPos: vec4<f32>) -> bool {
     let w = clipPos.w;
     
@@ -86,7 +89,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         let result = atomicExchange(&data[instanceIndex], 1u); // Try to set counter to 1 if it's currently 0
         // if its the first time its 1, then increase instance count
         if result != 1u {
-            atomicAdd(&indirect_draw.instanceCount, 1u);
+            let newIndex = atomicAdd(&indirect_draw.instanceCount, 1u);
+            culled_model_matrix[newIndex] = model_matrix[instanceIndex];
         }
     }
 }

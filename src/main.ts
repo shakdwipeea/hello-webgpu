@@ -37,12 +37,13 @@ async function render(state: RenderState) {
 
   state.camera.update(state.device);
 
-  const drawIndirectBuffer = await createComputePipeline(state.device, {
-    modelData: state.model.modelData,
-    modelMatrices: state.instanceData.data,
-    numInstances: 10,
-    camBuffer: state.camera.buildViewProjectionMatrix(),
-  });
+  const { drawIndirectBuffer, culledInstanceBuffer } =
+    await createComputePipeline(state.device, {
+      modelData: state.model.modelData,
+      modelMatrices: state.instanceData.data,
+      numInstances: 10,
+      camBuffer: state.camera.buildViewProjectionMatrix(),
+    });
 
   // const depthTexture = createDepthTexture(state.device, {
   //   width: canvas.width,
@@ -102,6 +103,10 @@ async function render(state: RenderState) {
     }
 
     for (let [i, buffer] of vertexBuffer.entries()) {
+      if (i === 1) {
+        pass.setVertexBuffer(i, culledInstanceBuffer);
+        continue;
+      }
       pass.setVertexBuffer(i, buffer);
     }
 

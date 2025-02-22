@@ -129,6 +129,22 @@ export async function createComputePipeline(
   const z = new Uint32Array(5).fill(0);
   device.queue.writeBuffer(drawIndirectBuffer, 0, z);
 
+  const culledInstanceBuffer = device.createBuffer({
+    label: "culled instance buffer",
+    size: instance.byteLength,
+    usage:
+      GPUBufferUsage.STORAGE |
+      GPUBufferUsage.COPY_SRC |
+      GPUBufferUsage.COPY_DST |
+      GPUBufferUsage.VERTEX,
+  });
+
+  const culledResult = device.createBuffer({
+    label: "culled result buffer",
+    size: instance.byteLength,
+    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+  });
+
   const bindGroupLayout = device.createBindGroupLayout({
     entries: [
       {
@@ -168,6 +184,13 @@ export async function createComputePipeline(
       },
       {
         binding: 5,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: {
+          type: "storage",
+        },
+      },
+      {
+        binding: 6,
         visibility: GPUShaderStage.COMPUTE,
         buffer: {
           type: "storage",
@@ -230,6 +253,12 @@ export async function createComputePipeline(
           buffer: drawIndirectBuffer,
         },
       },
+      {
+        binding: 6,
+        resource: {
+          buffer: culledInstanceBuffer,
+        },
+      },
     ],
   });
 
@@ -261,18 +290,26 @@ export async function createComputePipeline(
     debugBuffer.size
   );
 
+  encoder.copyBufferToBuffer(
+    culledInstanceBuffer,
+    0,
+    culledResult,
+    0,
+    culledResult.size
+  );
+
   // Finish encoding and submit the commands
   const commandBuffer = encoder.finish();
   device.queue.submit([commandBuffer]);
 
   // Read the results
-  await resultBuffer.mapAsync(GPUMapMode.READ);
-  const result = new Uint32Array(resultBuffer.getMappedRange().slice(0));
-  resultBuffer.unmap();
+  await culledResult.mapAsync(GPUMapMode.READ);
+  const result = new Float32Array(culledResult.getMappedRange().slice(0));
+  culledResult.unmap();
 
   console.log("result", result);
 
-  return drawIndirectBuffer;
+  return { drawIndirectBuffer, culledInstanceBuffer };
 }
 
 export function doCulling(
