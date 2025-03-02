@@ -308,7 +308,7 @@ export async function createComputePipeline(
 
   // Read the results
   await drawIndirectResult.mapAsync(GPUMapMode.READ);
-  const result = new Uint16Array(drawIndirectResult.getMappedRange().slice(0));
+  const result = new Uint32Array(drawIndirectResult.getMappedRange().slice(0));
   drawIndirectResult.unmap();
 
   console.log("result", result);
