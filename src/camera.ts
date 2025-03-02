@@ -1,5 +1,5 @@
 import { mat4, Mat4, utils, vec3, Vec3, vec4 } from "wgpu-matrix";
-import { ResourceBinding } from "./buffers";
+import { ResourceBinding } from "./model/model";
 
 export class CameraRotation {
   static direction: Vec3 = vec3.create(5, 0, 10);

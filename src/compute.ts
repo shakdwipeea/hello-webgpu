@@ -1,9 +1,9 @@
 import { Mat4, Vec3, vec4, Vec4 } from "wgpu-matrix";
-import { GltfModelData } from "./buffers";
 import culling from "./shaders/culling.wgsl?raw";
+import { ModelData } from "./model/types";
 
 interface CullingData {
-  modelData: GltfModelData;
+  modelData: ModelData;
   modelMatrices: Float32Array;
   numInstances: number;
   camBuffer: Mat4;
@@ -19,19 +19,9 @@ export async function createComputePipeline(
   });
 
   let input = [];
-
-  for (let i = 0; i < data.modelData.positions.length / 3; i++) {
-    const verticeData = [];
-
-    verticeData.push(...[data.numInstances, 0, 0, 0]);
-    verticeData.push(
-      data.modelData.positions[i * 3],
-      data.modelData.positions[i * 3 + 1],
-      data.modelData.positions[i * 3 + 2],
-      1.0
-    );
-
-    input.push(...verticeData);
+  for (let i = 0; i < data.modelData.positions.length; i++) {
+    input.push(...[data.numInstances, 0, 0, 0]);
+    input.push(...data.modelData.positions[i], 1.0);
   }
 
   const inputArr = Float32Array.from(input);
@@ -68,7 +58,7 @@ export async function createComputePipeline(
   });
 
   const debugBufferSize = Math.ceil(
-    data.numInstances * data.modelData.vertexCount * 4
+    data.numInstances * data.modelData.positions.length * 4
   );
 
   const debugGpuBuffer = device.createBuffer({
@@ -128,6 +118,12 @@ export async function createComputePipeline(
 
   const z = new Uint32Array(5).fill(0);
   device.queue.writeBuffer(drawIndirectBuffer, 0, z);
+
+  const drawIndirectResult = device.createBuffer({
+    label: "culled result buffer",
+    size: 5 * Uint32Array.BYTES_PER_ELEMENT,
+    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+  });
 
   const culledInstanceBuffer = device.createBuffer({
     label: "culled instance buffer",
@@ -298,14 +294,22 @@ export async function createComputePipeline(
     culledResult.size
   );
 
+  encoder.copyBufferToBuffer(
+    drawIndirectBuffer,
+    0,
+    drawIndirectResult,
+    0,
+    drawIndirectResult.size
+  );
+
   // Finish encoding and submit the commands
   const commandBuffer = encoder.finish();
   device.queue.submit([commandBuffer]);
 
   // Read the results
-  await culledResult.mapAsync(GPUMapMode.READ);
-  const result = new Float32Array(culledResult.getMappedRange().slice(0));
-  culledResult.unmap();
+  await drawIndirectResult.mapAsync(GPUMapMode.READ);
+  const result = new Uint16Array(drawIndirectResult.getMappedRange().slice(0));
+  drawIndirectResult.unmap();
 
   console.log("result", result);
 

@@ -1,6 +1,6 @@
 import { vec3, Vec3, vec4, Vec4 } from "wgpu-matrix";
-import { Model, ResourceBinding } from "./buffers";
 import lightShader from "./shaders/light.wgsl?raw";
+import { Model, ResourceBinding } from "./model/types";
 
 interface LightUniform {
   position: Vec4;

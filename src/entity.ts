@@ -1,4 +1,4 @@
-import { ResourceBinding } from "./buffers";
+import { ResourceBinding } from "./model/model";
 
 interface DrawPass {
   pipeline: GPURenderPipeline;

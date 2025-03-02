@@ -1,15 +1,11 @@
 import triangleShader from "./shaders/triangle.wgsl?raw";
-import {
-  createIndexBuffer,
-  createVertexBuffer,
-  Indices,
-  loadModel,
-} from "./buffers";
+import { loadModel } from "./model/model";
 import { createDepthTexture, createTexture, TextureResource } from "./texture";
-import { Camera, CameraRotation } from "./camera";
+import { Camera } from "./camera";
 import { createLightRenderPipeline } from "./lights";
 import { createInstanceBuffer, createInstanceLayout } from "./instances";
 import { createComputePipeline } from "./compute";
+import { Model } from "./model/types";
 
 interface DrawPass {
   pipeline: GPURenderPipeline;
@@ -112,6 +108,7 @@ async function render(state: RenderState) {
 
     pass.setIndexBuffer(indexBuffer, "uint16");
     pass.drawIndexedIndirect(drawIndirectBuffer, 0); // Assuming you have a triangle with 3 vertices
+    // pass.drawIndexed(drawCount, 10);
   }
 
   pass.end();
@@ -198,7 +195,7 @@ async function main() {
   }
 
   const { texture, sampler } = await createTexture(device);
-  const instances = createInstanceLayout(device);
+  const instances = createInstanceLayout();
 
   const lightData = createLightRenderPipeline(
     device,
@@ -316,13 +313,12 @@ async function main() {
     },
   ];
 
-  createComputePipeline(device, {
-    modelData: model.modelData,
-    modelMatrices: instanceData.data,
-    numInstances: 10,
-    camBuffer: camera.buildViewProjectionMatrix(),
-  });
-
+  // createComputePipeline(device, {
+  //   modelData: model.modelData,
+  //   modelMatrices: instanceData.data,
+  //   numInstances: 10,
+  //   camBuffer: camera.buildViewProjectionMatrix(),
+  // });
   requestAnimationFrame(() => {
     render({
       device,
